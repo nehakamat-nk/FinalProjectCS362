@@ -1,167 +1,327 @@
-#include <LiquidCrystal.h>
+/*
+ * 
+ * This Arduino controls ONE breadboard with:
+ * - 4 player buttons (one per player)
+ * - 4 player LEDs (lights up when that player wins a round)
 
-// LCD pins
-const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+ * Hardware Connections:
+ * - Player 1: Button on pin 2, LED on pin 3
+ * - Player 2: Button on pin 4, LED on pin 5
+ * - Player 3: Button on pin 6, LED on pin 7
+ * - Player 4: Button on pin 8, LED on pin 9
+ * - I2C: SDA (A4), SCL (A5)
+ * - Ground: Connect to common ground with all other Arduinos
+ */
 
-// Button pins
-const int buttonUp = A0;
-const int buttonDown = A1;
+#include <Wire.h>
 
-// LED pins
-const int LEDS[] = {7, 8, 9, 10};
+// I2C slave address for this Arduino
+#define I2C_ADDRESS 0x08
 
-// Sequence array
-const int sequence[] = {0000, 0001, 0101, 0110, 1000};
-const int sequenceLength = 5;
+// Button pins - using digital pins with internal pull-up resistors
+const int buttonPins[4] = {2, 4, 6, 8};
 
-// State variables
-int sequenceIndex = 0;
-bool isForward = true;
-unsigned long displayInterval = 1500;
+// LED pins - one for each player (lights up when they win)
+const int ledPins[4] = {3, 5, 7, 9};
 
-// Timing variables
-unsigned long prevDisplayMillis = 0;
-unsigned long prevLCDMillis = 0;
-const unsigned long lcdUpdateInterval = 100;
+// Game state variables
+volatile bool roundActive = false;           // Whether buttons should be monitored
+volatile bool buttonPressed = false;         // Whether any button has been pressed this round
+volatile int winningPlayer = -1;             // Which player won (0-3), -1 if none
+volatile unsigned long buttonPressTime = 0;  // Time when button was pressed (for reaction time)
 
-// Button debounce variables
-int upButtonState = LOW;
-int downButtonState = LOW;
-int uplastButtonState = LOW;
-int downlastButtonState = LOW;
-unsigned long upDebounceTime = 0;
-unsigned long downDebounceTime = 0;
-const unsigned long debounceDelay = 50;
+// Variables for debouncing
+volatile unsigned long lastDebounceTime[4] = {0, 0, 0, 0};
+const unsigned long debounceDelay = 50; // 50ms debounce delay
+// Startup sequence state machine variables
+enum StartupState {
+  STARTUP_IDLE,
+  STARTUP_LED1,
+  STARTUP_LED2,
+  STARTUP_LED3,
+  STARTUP_LED4,
+  STARTUP_PAUSE,
+  STARTUP_ALL_ON,
+  STARTUP_ALL_OFF,
+  STARTUP_DONE
+};
+
+StartupState startupState = STARTUP_IDLE;
+unsigned long startupTimer = 0;
+const unsigned long startupStepTime = 150;  // Time for each LED in sequence
 
 void setup() {
-  //button pins
-  pinMode(buttonUp, INPUT);
-  pinMode(buttonDown, INPUT);
+  // Initialize serial for debugging
+  Serial.begin(9600);
+  Serial.println("Button/LED Board Arduino initialized");
   
-  //LED pins
-  for(int i = 0; i < 4; i++){
-    pinMode(LEDS[i], OUTPUT);
+  // Configure button pins as inputs with pull-up resistors
+  // Buttons connect between pin and ground
+  for (int i = 0; i < 4; i++) {
+    pinMode(buttonPins[i], INPUT_PULLUP);
   }
   
-  // intial LCD
-  lcd.begin(16, 2);
+  // Configure LED pins as outputs
+  for (int i = 0; i < 4; i++) {
+    pinMode(ledPins[i], OUTPUT);
+    digitalWrite(ledPins[i], LOW); // Start with all LEDs off
+  }
   
-  updateLEDs();
+  // Initialize I2C as slave
+  Wire.begin(I2C_ADDRESS);
+  Wire.onReceive(receiveEvent);  // Register receive event handler
+  Wire.onRequest(requestEvent);  // Register request event handler
+  
+  // Start the LED startup sequence (shows system is working)
+  startupState = STARTUP_LED1;
+  startupTimer = millis();
 }
 
 void loop() {
-  unsigned long currentMillis = millis();
-  
-  // Handle upButton for speed toggle
-  handleUpButton(currentMillis);
-  
-  // Handle downButton for direction toggle
-  handleDownButton(currentMillis);
-  
-  // Update LED sequence based on interval
-  if (currentMillis - prevDisplayMillis >= displayInterval) {
-    prevDisplayMillis = currentMillis;
-    
-    if (isForward) {
-      sequenceIndex++;
-      if (sequenceIndex >= sequenceLength) {
-        sequenceIndex = 0; 
-      }
-    } else {
-      sequenceIndex--;
-      if (sequenceIndex < 0) {
-        sequenceIndex = sequenceLength - 1; 
-      }
-    }
-    
-    updateLEDs();
+  // Run startup sequence if not done
+  if (startupState != STARTUP_DONE) {
+    runStartupSequence();
   }
   
-  //Update LCD display periodically
-  if (currentMillis - prevLCDMillis >= lcdUpdateInterval) {
-    prevLCDMillis = currentMillis;
-    updateLCD();
+  // Only check buttons when a round is active and no winner yet
+  if (roundActive && !buttonPressed) {
+    checkButtons();
   }
 }
 
-void handleUpButton(unsigned long currentMillis) {
-  int reading = digitalRead(buttonUp);
+/*
+ * Non-blocking startup LED sequence using state machine.
+ * Lights up each player LED in sequence to show the system is ready.
+ * NO DELAY() CALLS - uses millis() timing.
+ */
+void runStartupSequence() {
+  unsigned long currentTime = millis();
   
-  if (reading != uplastButtonState) {
-    upDebounceTime = currentMillis;
-  }
-  
-  if ((currentMillis - upDebounceTime) > debounceDelay) {
-    // If button state has changed
-    if (reading != upButtonState) {
-      upButtonState = reading;
+  switch (startupState) {
+    case STARTUP_LED1:
+      if (currentTime - startupTimer >= startupStepTime) {
+        digitalWrite(ledPins[0], HIGH);
+        startupState = STARTUP_LED2;
+        startupTimer = currentTime;
+      }
+      break;
       
-  
-      if (upButtonState == HIGH) {
+    case STARTUP_LED2:
+      if (currentTime - startupTimer >= startupStepTime) {
+        digitalWrite(ledPins[1], HIGH);
+        startupState = STARTUP_LED3;
+        startupTimer = currentTime;
+      }
+      break;
       
-        if (displayInterval == 1500) {
-          displayInterval = 3000;
-        } else {
-          displayInterval = 1500;
+    case STARTUP_LED3:
+      if (currentTime - startupTimer >= startupStepTime) {
+        digitalWrite(ledPins[2], HIGH);
+        startupState = STARTUP_LED4;
+        startupTimer = currentTime;
+      }
+      break;
+      
+    case STARTUP_LED4:
+      if (currentTime - startupTimer >= startupStepTime) {
+        digitalWrite(ledPins[3], HIGH);
+        startupState = STARTUP_PAUSE;
+        startupTimer = currentTime;
+      }
+      break;
+      
+    case STARTUP_PAUSE:
+      if (currentTime - startupTimer >= 300) {
+        turnOffAllLeds();
+        startupState = STARTUP_ALL_OFF;
+        startupTimer = currentTime;
+      }
+      break;
+      
+    case STARTUP_ALL_OFF:
+      if (currentTime - startupTimer >= 200) {
+        // Turn all LEDs on for final flash
+        for (int i = 0; i < 4; i++) {
+          digitalWrite(ledPins[i], HIGH);
         }
+        startupState = STARTUP_ALL_ON;
+        startupTimer = currentTime;
       }
-    }
-  }
-  
-  uplastButtonState = reading;
-}
-
-void handleDownButton(unsigned long currentMillis) {
-  int reading = digitalRead(buttonDown);
-  
-  // Check if button state changed
-  if (reading != downlastButtonState) {
-    downDebounceTime = currentMillis;
-  }
-  
-  if ((currentMillis - downDebounceTime) > debounceDelay) {
+      break;
+      
+    case STARTUP_ALL_ON:
+      if (currentTime - startupTimer >= 200) {
+        turnOffAllLeds();
+        startupState = STARTUP_DONE;
+        Serial.println("Startup sequence complete - Ready for game");
+      }
+      break;
+      
+    case STARTUP_DONE:
     
-    if (reading != downButtonState) {
-      downButtonState = reading;
+      break;
       
+    default:
+      startupState = STARTUP_DONE;
+      break; 
+  }
+}
+
+/*
+ * Checks all player buttons for presses during active rounds.
+ * Uses debouncing to prevent false readings.
+ * 
+ * FIRST BUTTON PRESS WINS THE ROUND
+ */
+void checkButtons() {
+  unsigned long currentTime = millis();
+  
+  for (int i = 0; i < 4; i++) {
+    // Read button state (
+    int buttonState = digitalRead(buttonPins[i]);
+    
+    // Check if button is pressed and enough time has passed for debouncing
+    if (buttonState == LOW && (currentTime - lastDebounceTime[i]) > debounceDelay) {
+      // Update debounce time
+      lastDebounceTime[i] = currentTime;
       
-      if (downButtonState == HIGH) {
-        // Toggle direction
-        isForward = !isForward;
-      }
+      // Register this button press as the winner
+      buttonPressed = true;
+      winningPlayer = i; 
+      buttonPressTime = currentTime;
+      
+      // Light up the winning player's LED immediately
+      digitalWrite(ledPins[i], HIGH);
+      
+      // Debug output
+      Serial.print("Player ");
+      Serial.print(i + 1);
+      Serial.println(" pressed first - Winner of this round!");
+      
+      break; // Exit loop - first press wins, ignore other buttons
     }
   }
-  
-  downlastButtonState = reading;
 }
 
-void updateLEDs() {
-  int value = sequence[sequenceIndex];
-  
-  // Set each LED based on the bit value
-  for(int i = 0; i < 4; i++){
-    int bitValue = (value >> i) & 1;
-    digitalWrite(LEDS[i], bitValue);
+/*
+ * I2C receive event handler.
+ * Processes commands from the master LCD Arduino.
+ * 
+ * Commands received from master:
+ * - 'S': Start round - activate button monitoring
+ * - 'E': End round - deactivate buttons (winner LED stays on)
+ * - 'R': Reset game - clear all state, turn off all LEDs
+ * - 'W' + player number (0-3): Light up specific winner LED (for team mode)
+ * - 'O': Turn off all LEDs
+ */
+void receiveEvent(int numBytes) {
+  if (Wire.available()) {
+    char command = Wire.read();
+    
+    switch (command) {
+      case 'S': // Start round
+        startRound();
+        Serial.println("Round started - buttons active");
+        break;
+        
+      case 'E': // End round
+        endRound();
+        Serial.println("Round ended - buttons inactive");
+        break;
+        
+      case 'R': // Reset game
+        resetGame();
+        Serial.println("Game reset");
+        break;
+        
+      case 'W': // Light up specific winner LED (used for team mode)
+        if (Wire.available()) {
+          int player = Wire.read();
+          if (player >= 0 && player < 4) {
+            digitalWrite(ledPins[player], HIGH);
+            Serial.print("Winner LED lit for player ");
+            Serial.println(player + 1);
+          }
+        }
+        break;
+        
+      case 'O': // Turn off all LEDs
+        turnOffAllLeds();
+        Serial.println("All LEDs off");
+        break;
+        
+      default:
+        Serial.print("Unknown command: ");
+        Serial.println(command);
+        break;
+    }
   }
 }
 
-void updateLCD() {
-  // First line: Speed
-  lcd.setCursor(0, 0);
-  lcd.print("Speed: ");
-  if (displayInterval == 1500) {
-    lcd.print("1.5s  ");
+/*
+ * I2C request event handler.
+ * Sends button press information to the master when requested.
+ * Master uses this to know who won and update scores.
+ * 
+ * Data sent to master:
+ * Byte 1: Winning player number (0-3) or 255 if no winner yet
+ */
+void requestEvent() {
+  if (buttonPressed && winningPlayer >= 0) {
+    // Send the winning player number (0-3)
+    Wire.write(winningPlayer);
+    Serial.print("Sending winner data to master: Player ");
+    Serial.println(winningPlayer + 1);
   } else {
-    lcd.print("3.0s  ");
-  }
-  
-  // Second line: Direction
-  lcd.setCursor(0, 1);
-  lcd.print("Dir: ");
-  if (isForward) {
-    lcd.print("Forward  ");
-  } else {
-    lcd.print("Backward ");
+    // Send 255 to indicate no winner yet
+    Wire.write(255);
   }
 }
+
+/*
+ * Starts a new round by activating button monitoring.
+ * Turns off all LEDs and resets winner state.
+ */
+void startRound() {
+  roundActive = true;
+  buttonPressed = false;
+  winningPlayer = -1;
+  turnOffAllLeds();
+}
+
+/*
+ * Ends the current round.
+ * Deactivates button monitoring but keeps winner LED lit.
+ */
+void endRound() {
+  roundActive = false;
+}
+
+/*
+ * Resets all game state variables and turns off all LEDs.
+ * Used when starting a new game.
+ */
+void resetGame() {
+  roundActive = false;
+  buttonPressed = false;
+  winningPlayer = -1;
+  turnOffAllLeds();
+  
+  // Reset debounce timers
+  for (int i = 0; i < 4; i++) {
+    lastDebounceTime[i] = 0;
+  }
+}
+
+/*
+ * Turns off all player LEDs.
+ */
+void turnOffAllLeds() {
+  for (int i = 0; i < 4; i++) {
+    digitalWrite(ledPins[i], LOW);
+  }
+}
+
+
+
+
