@@ -1,0 +1,167 @@
+#include <LiquidCrystal.h>
+
+// LCD pins
+const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+// Button pins
+const int buttonUp = A0;
+const int buttonDown = A1;
+
+// LED pins
+const int LEDS[] = {7, 8, 9, 10};
+
+// Sequence array
+const int sequence[] = {0000, 0001, 0101, 0110, 1000};
+const int sequenceLength = 5;
+
+// State variables
+int sequenceIndex = 0;
+bool isForward = true;
+unsigned long displayInterval = 1500;
+
+// Timing variables
+unsigned long prevDisplayMillis = 0;
+unsigned long prevLCDMillis = 0;
+const unsigned long lcdUpdateInterval = 100;
+
+// Button debounce variables
+int upButtonState = LOW;
+int downButtonState = LOW;
+int uplastButtonState = LOW;
+int downlastButtonState = LOW;
+unsigned long upDebounceTime = 0;
+unsigned long downDebounceTime = 0;
+const unsigned long debounceDelay = 50;
+
+void setup() {
+  //button pins
+  pinMode(buttonUp, INPUT);
+  pinMode(buttonDown, INPUT);
+  
+  //LED pins
+  for(int i = 0; i < 4; i++){
+    pinMode(LEDS[i], OUTPUT);
+  }
+  
+  // intial LCD
+  lcd.begin(16, 2);
+  
+  updateLEDs();
+}
+
+void loop() {
+  unsigned long currentMillis = millis();
+  
+  // Handle upButton for speed toggle
+  handleUpButton(currentMillis);
+  
+  // Handle downButton for direction toggle
+  handleDownButton(currentMillis);
+  
+  // Update LED sequence based on interval
+  if (currentMillis - prevDisplayMillis >= displayInterval) {
+    prevDisplayMillis = currentMillis;
+    
+    if (isForward) {
+      sequenceIndex++;
+      if (sequenceIndex >= sequenceLength) {
+        sequenceIndex = 0; 
+      }
+    } else {
+      sequenceIndex--;
+      if (sequenceIndex < 0) {
+        sequenceIndex = sequenceLength - 1; 
+      }
+    }
+    
+    updateLEDs();
+  }
+  
+  //Update LCD display periodically
+  if (currentMillis - prevLCDMillis >= lcdUpdateInterval) {
+    prevLCDMillis = currentMillis;
+    updateLCD();
+  }
+}
+
+void handleUpButton(unsigned long currentMillis) {
+  int reading = digitalRead(buttonUp);
+  
+  if (reading != uplastButtonState) {
+    upDebounceTime = currentMillis;
+  }
+  
+  if ((currentMillis - upDebounceTime) > debounceDelay) {
+    // If button state has changed
+    if (reading != upButtonState) {
+      upButtonState = reading;
+      
+  
+      if (upButtonState == HIGH) {
+      
+        if (displayInterval == 1500) {
+          displayInterval = 3000;
+        } else {
+          displayInterval = 1500;
+        }
+      }
+    }
+  }
+  
+  uplastButtonState = reading;
+}
+
+void handleDownButton(unsigned long currentMillis) {
+  int reading = digitalRead(buttonDown);
+  
+  // Check if button state changed
+  if (reading != downlastButtonState) {
+    downDebounceTime = currentMillis;
+  }
+  
+  if ((currentMillis - downDebounceTime) > debounceDelay) {
+    
+    if (reading != downButtonState) {
+      downButtonState = reading;
+      
+      
+      if (downButtonState == HIGH) {
+        // Toggle direction
+        isForward = !isForward;
+      }
+    }
+  }
+  
+  downlastButtonState = reading;
+}
+
+void updateLEDs() {
+  int value = sequence[sequenceIndex];
+  
+  // Set each LED based on the bit value
+  for(int i = 0; i < 4; i++){
+    int bitValue = (value >> i) & 1;
+    digitalWrite(LEDS[i], bitValue);
+  }
+}
+
+void updateLCD() {
+  // First line: Speed
+  lcd.setCursor(0, 0);
+  lcd.print("Speed: ");
+  if (displayInterval == 1500) {
+    lcd.print("1.5s  ");
+  } else {
+    lcd.print("3.0s  ");
+  }
+  
+  // Second line: Direction
+  lcd.setCursor(0, 1);
+  lcd.print("Dir: ");
+  if (isForward) {
+    lcd.print("Forward  ");
+  } else {
+    lcd.print("Backward ");
+  }
+}
