@@ -1,0 +1,99 @@
+int pinA = 2;
+int pinB = 3;
+int pinC  = 4;
+int pinD = 5;
+int pinE = 6;
+int pinF = 7;
+int pinG = 8;
+int pinDP = 9;
+int D1 = 10;
+int D2 = 11;
+int D3 = 12;
+int D4 = 13;
+
+unsigned long startTime = 0;
+unsigned long elapsedTime = 0;
+char digits [4];
+const int segmentPins[] = {pinA, pinB, pinC, pinD, pinE, pinF, pinG, pinDP};
+const int digitPins[] = {D1, D2, D3, D4};
+
+const byte digitPatterns[] = {
+  0b00111111, // 0
+  0b00000110, // 1
+  0b01011011, // 2
+  0b01001111, // 3
+  0b01100110, // 4
+  0b01101101, // 5
+  0b01111101, // 6
+  0b00000111, // 7
+  0b01111111, // 8
+  0b01101111  // 9
+};
+
+// the setup routine  runs once when you press reset:
+void setup() {       
+  Serial.begin(9600); 
+  Serial.println("Countdown Timer Started: 00:00");     
+  //setup all pins
+  for (int i = 0; i < 8; i++) {
+    pinMode(segmentPins[i], OUTPUT);
+  }
+  // Set digit pins as outputs
+  for (int i = 0; i < 4; i++) {
+    pinMode(digitPins[i], OUTPUT);
+  }
+
+  startTime = millis();
+}
+
+// the loop routine runs over  and over again forever:
+void loop() {
+  // find current time
+  elapsedTime = millis() - startTime;
+  
+  // figure out all places(1000s, 100s, 10s, 1s)
+  digits[0] = (elapsedTime / 1000) % 10;
+  digits[1] = (elapsedTime / 100) % 10;
+  digits[2] = (elapsedTime / 10) % 10;
+  digits[3] = elapsedTime % 10;
+  // debug print
+  char buffer[20];
+  sprintf(buffer, "%d.%d%d%d", digits[0], digits[1], digits[2], digits[3]);
+  Serial.println(buffer);
+  refreshDisplay();
+}
+
+void refreshDisplay() {
+  // cycle through all digit places
+  unsigned long lastTime = millis();
+  unsigned long interval = 1000;
+  
+  for (int digit = 0; digit < 4; digit++) {
+    unsigned long currTime = millis();
+    if(currTime - lastTime > interval){
+      displayDigit(digit, digits[digit]);
+      lastTime = currTime;
+    }
+
+  }
+}
+
+void displayDigit(int digit, int number) {
+  // turn off display
+  for (int i = 0; i < 4; i++) {
+    digitalWrite(digitPins[i], HIGH);
+  }
+  // select num
+  byte pattern = digitPatterns[number];
+  // add decimal point
+  if(digit == 0){
+    pattern |= 0b10000000;
+  }
+  //update display with new vals
+  for (int i = 0; i < 8; i++) {
+    digitalWrite(segmentPins[i], (pattern >> i) & 0x01);
+  }
+  
+  //turn on current digit
+  digitalWrite(digitPins[digit], LOW);
+}
