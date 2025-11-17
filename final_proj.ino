@@ -177,78 +177,20 @@ void play_game()
     updatePlayingScreen();
 
     unsigned long roundStartTime=0;
-    // Turn LED on after delayTime
+    // SEND SIGNAL TO DAWID"S BOARD TO TURN ON BOARD LED AND START CLOCK
     if (!ledState && (millis() - currTime >= delayTime)) {
       ledState = 1;
       digitalWrite(testLed, HIGH);
       roundStartTime=millis();
     }
 
-    //PLAYER 1
-    int player1Reading = digitalRead(player1Button);
-    if (player1Reading != prevPlayer1ButtonState) player1Time = millis();
-
-    if ((millis() - player1Time) >= 50) {
-      if (player1Reading != player1ButtonState) {
-        player1ButtonState = player1Reading;
-
-        if (player1ButtonState == LOW && ledState == 1) { //PLAYER 1 SCORE
-          player1Score++; //Increase Score
-          
-          ledState = 0; //Turn off LED
-          digitalWrite(testLed, LOW);
-
-          currTime = millis(); // reset timer for next round
-
-          delayTime = random(2000, 5000); //Make new random time
-          previousRoundTime = millis()-roundStartTime; //roundStartTime is start of round time
-
-          if (previousRoundTime < fastestTime) //Update fastest time if necessary
-          {
-            fastestTime = previousRoundTime;
-          }
-
-          updatePlayingScreen(); //Update LCD screen with new scores
-        }
-        else if (player1ButtonState == LOW && ledState == 1)
-        {
-          currTime = millis();
-        }
-      }
-    }
-    prevPlayer1ButtonState = player1Reading;
-
-    //PLAYER 2
-    int player2Reading = digitalRead(player2Button);
-    if (player2Reading != prevPlayer2ButtonState) player2Time = millis();
-
-    if ((millis() - player2Time) >= 50) {
-      if (player2Reading != player2ButtonState) {
-        player2ButtonState = player2Reading;
-        if (player2ButtonState == LOW && ledState == 1) {
-          player2Score++;
-          ledState = 0;
-          digitalWrite(testLed, LOW);
-          currTime = millis(); // reset timer
-          delayTime = random(2000, 5000);
-          previousRoundTime = millis()-roundStartTime;
-
-          if (previousRoundTime < fastestTime)
-          {
-            fastestTime = previousRoundTime;
-          }
-          updatePlayingScreen();
-        }
-        else if (player2ButtonState == LOW && ledState == 1)
-        {
-          currTime = millis();
-        }
-      }
-    }
-    prevPlayer2ButtonState = player2Reading;
-
+    
+    //**READ FROM NEHA/PAULINA'S BOARD
+    //UPDATE SCORES
+    //SEND SIGNAL TO DAWID's BOARD TO TURN OFF LED
+    
     // --- End condition ---
-    if (player1Score >= 10 || player2Score >= 10) {
+    if (player1Score >= 10 || player2Score >= 10 || player3Score >=10 || player4Score >= 10) {
       lcd.clear();
       endOfGame();
       currentState = END_OF_GAME;
