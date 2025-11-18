@@ -1,3 +1,6 @@
+//refrences: https://forum.arduino.cc/t/coding-a-timer-with-4-digit-7-segement-display-and-74hc595/1295212
+//
+
 int pinA = 2;
 int pinB = 3;
 int pinC  = 4;
@@ -15,7 +18,11 @@ unsigned long startTime = 0;
 unsigned long elapsedTime = 0;
 char digits [4];
 const int segmentPins[] = {pinA, pinB, pinC, pinD, pinE, pinF, pinG, pinDP};
-const int digitPins[] = {D1, D2, D3, D4};
+const int digitPins[] = {D4, D3, D2, D1};
+
+unsigned long previous = 0;
+unsigned long interval = 2;
+int currentDigit = 0;
 
 const byte digitPatterns[] = {
   0b00111111, // 0
@@ -42,39 +49,31 @@ void setup() {
   for (int i = 0; i < 4; i++) {
     pinMode(digitPins[i], OUTPUT);
   }
-
   startTime = millis();
 }
 
 // the loop routine runs over  and over again forever:
 void loop() {
   // find current time
-  elapsedTime = millis() - startTime;
+  unsigned long currTime = millis();
+
+  elapsedTime = currTime - startTime;
   
   // figure out all places(1000s, 100s, 10s, 1s)
   digits[0] = (elapsedTime / 1000) % 10;
   digits[1] = (elapsedTime / 100) % 10;
   digits[2] = (elapsedTime / 10) % 10;
   digits[3] = elapsedTime % 10;
+
   // debug print
   char buffer[20];
   sprintf(buffer, "%d.%d%d%d", digits[0], digits[1], digits[2], digits[3]);
   Serial.println(buffer);
-  refreshDisplay();
-}
-
-void refreshDisplay() {
-  // cycle through all digit places
-  unsigned long lastTime = millis();
-  unsigned long interval = 1000;
   
-  for (int digit = 0; digit < 4; digit++) {
-    unsigned long currTime = millis();
-    if(currTime - lastTime > interval){
-      displayDigit(digit, digits[digit]);
-      lastTime = currTime;
-    }
-
+  if (currTime - previous >= interval) {
+    previous = currTime;
+    displayDigit(currentDigit, digits[currentDigit]);
+    currentDigit = (currentDigit + 1) % 4;
   }
 }
 
