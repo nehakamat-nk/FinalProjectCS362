@@ -1,14 +1,4 @@
-/*
- * Button/LED Board Arduino Controller - 2 PLAYER VERSION
- * 
- * This Arduino controls ONE breadboard with:
- * 
- * Hardware Connections:
- * - Player 1: Button on pin 8, LED on pin 2
- * - Player 2: Button on pin 9, LED on pin 3
- * - I2C: SDA (A4), SCL (A5)
- * - Ground: Connect to common ground with all other Arduinos
- */
+
 
 #include <Wire.h>
 
@@ -18,13 +8,13 @@
 // Button pins - using digital pins with internal pull-up resistors
 const int buttonPins[2] = {8, 9};
 
-// LED pins - one for each player (lights up when they win)
+// LED pins - one for each player (lights up when main board confirms winner)
 const int ledPins[2] = {2, 3};
 
 // Game state variables
 volatile bool roundActive = false;           // Whether buttons should be monitored
 volatile bool buttonPressed = false;         // Whether any button has been pressed this round
-volatile int winningPlayer = -1;             // Which player won (0-1), -1 if none
+volatile int pressedPlayer = -1;             // Which player pressed button (0-1), -1 if none
 volatile unsigned long buttonPressTime = 0;  // Time when button was pressed (for reaction time)
 
 // Variables for debouncing
@@ -79,7 +69,7 @@ void loop() {
     runStartupSequence();
   }
   
-  // Only check buttons when a round is active and no winner yet
+  // Only check buttons when a round is active and no button pressed yet
   if (roundActive && !buttonPressed) {
     checkButtons();
   }
@@ -88,7 +78,6 @@ void loop() {
 /*
  * Non-blocking startup LED sequence using state machine.
  * Lights up each player LED in sequence to show the system is ready.
- * NO DELAY() CALLS - uses millis() timing.
  */
 void runStartupSequence() {
   unsigned long currentTime = millis();
@@ -151,35 +140,32 @@ void runStartupSequence() {
  * Checks all player buttons for presses during active rounds.
  * Uses debouncing to prevent false readings.
  * 
- * FIRST BUTTON PRESS WINS THE ROUND
- * Example: If Player 2 presses first → LED 2 lights up
+ * DOES NOT LIGHT UP LED - just records which button was pressed
+ * LED will light up only when main board sends winner confirmation
  */
 void checkButtons() {
   unsigned long currentTime = millis();
   
   for (int i = 0; i < 2; i++) {
-    // Read button state 
+    // Read button state (LOW = pressed due to pull-up resistor)
     int buttonState = digitalRead(buttonPins[i]);
     
     // Check if button is pressed and enough time has passed for debouncing
     if (buttonState == LOW && (currentTime - lastDebounceTime[i]) > debounceDelay) {
-   
+      // Update debounce time
       lastDebounceTime[i] = currentTime;
       
-      // Register this button press as the winner
+      // Register this button press (but don't light LED yet)
       buttonPressed = true;
-      winningPlayer = i;  // 0=Player1, 1=Player2
+      pressedPlayer = i;  // 0=Player1, 1=Player2
       buttonPressTime = currentTime;
       
-      // Light up the winning player's LED immediately
-      digitalWrite(ledPins[i], HIGH);
-      
-
+      // Debug output
       Serial.print("Player ");
       Serial.print(i + 1);
-      Serial.println(" pressed first - Winner of this round!");
+      Serial.println(" pressed button - waiting for main board confirmation");
       
-      break; 
+      break; // Exit loop - first press recorded
     }
   }
 }
@@ -190,9 +176,9 @@ void checkButtons() {
  * 
  * Commands received from master:
  * - 'S': Start round - activate button monitoring
- * - 'E': End round - deactivate buttons (winner LED stays on)
+ * - 'E': End round - deactivate buttons
  * - 'R': Reset game - clear all state, turn off all LEDs
- * - 'W' + player number (0-1): Light up specific winner LED (for team mode)
+ * - 'W' + player number (0-1): Light up winner LED (MAIN BOARD TELLS US WHO WON)
  * - 'O': Turn off all LEDs
  */
 void receiveEvent(int numBytes) {
@@ -215,13 +201,15 @@ void receiveEvent(int numBytes) {
         Serial.println("Game reset");
         break;
         
-      case 'W': // Light up specific winner LED (used for team mode)
+      case 'W': // WINNER CONFIRMATION - Light up specific player LED
         if (Wire.available()) {
           int player = Wire.read();
           if (player >= 0 && player < 2) {
+            // Main board tells us which player won - NOW we light the LED
             digitalWrite(ledPins[player], HIGH);
-            Serial.print("Winner LED lit for player ");
+            Serial.print("Main board confirmed winner: Player ");
             Serial.println(player + 1);
+            Serial.println("LED now lit");
           }
         }
         break;
@@ -242,31 +230,31 @@ void receiveEvent(int numBytes) {
 /*
  * I2C request event handler.
  * Sends button press information to the master when requested.
- * Master uses this to know who won and update scores.
+ * Main board uses this to determine who pressed first across all boards.
  * 
  * Data sent to master:
- * Byte 1: Winning player number (0-1) or 255 if no winner yet
+ * Byte 1: Pressed player number (0-1) or 255 if no button pressed yet
  */
 void requestEvent() {
-  if (buttonPressed && winningPlayer >= 0) {
-    // Send the winning player number (0-1)
-    Wire.write(winningPlayer);
-    Serial.print("Sending winner data to master: Player ");
-    Serial.println(winningPlayer + 1);
+  if (buttonPressed && pressedPlayer >= 0) {
+    // Send which player pressed button (0-1)
+    Wire.write(pressedPlayer);
+    Serial.print("Sending button press data to main board: Player ");
+    Serial.println(pressedPlayer + 1);
   } else {
-    // Send 255 to indicate no winner yet
+    // Send 255 to indicate no button pressed yet
     Wire.write(255);
   }
 }
 
 /*
  * Starts a new round by activating button monitoring.
- * Turns off all LEDs and resets winner state.
+ * Turns off all LEDs and resets button press state.
  */
 void startRound() {
   roundActive = true;
   buttonPressed = false;
-  winningPlayer = -1;
+  pressedPlayer = -1;
   turnOffAllLeds();
 }
 
@@ -285,7 +273,7 @@ void endRound() {
 void resetGame() {
   roundActive = false;
   buttonPressed = false;
-  winningPlayer = -1;
+  pressedPlayer = -1;
   turnOffAllLeds();
   
   // Reset debounce timers
