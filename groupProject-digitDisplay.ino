@@ -1,5 +1,15 @@
 //refrences: https://forum.arduino.cc/t/coding-a-timer-with-4-digit-7-segement-display-and-74hc595/1295212
-//
+// https://docs.arduino.cc/language-reference/en/functions/random-numbers/random/
+// https://docs.arduino.cc/learn/communication/wire/
+
+
+int led1 = A0;
+int led2 = A1;
+int led3 = A2;
+
+int x = 0;
+long randomNum = 0;
+bool timerOn = false;
 
 int pinA = 2;
 int pinB = 3;
@@ -37,10 +47,17 @@ const byte digitPatterns[] = {
   0b01101111  // 9
 };
 
+#include <Wire.h>
+
 // the setup routine  runs once when you press reset:
-void setup() {       
-  Serial.begin(9600); 
-  Serial.println("Countdown Timer Started: 00:00");     
+void setup() {    
+  Wire.begin(4);
+  Wire.onReceive(receiveEvent);
+  Serial.begin(9600);
+
+  // debug prints
+  // Serial.println("Countdown Timer Started: 00:00");
+
   //setup all pins
   for (int i = 0; i < 8; i++) {
     pinMode(segmentPins[i], OUTPUT);
@@ -49,31 +66,68 @@ void setup() {
   for (int i = 0; i < 4; i++) {
     pinMode(digitPins[i], OUTPUT);
   }
-  startTime = millis();
+  // setup leds
+  pinMode(led1, OUTPUT);
+  pinMode(led2, OUTPUT);
+  pinMode(led3, OUTPUT);
+
 }
 
 // the loop routine runs over  and over again forever:
 void loop() {
-  // find current time
-  unsigned long currTime = millis();
+  //check if we recieve a signal to start clock and select a random led
+  if(x == 1){
+    if (!timerOn){
+      startTime = millis();
+      timerOn = true;
 
-  elapsedTime = currTime - startTime;
-  
-  // figure out all places(1000s, 100s, 10s, 1s)
-  digits[0] = (elapsedTime / 1000) % 10;
-  digits[1] = (elapsedTime / 100) % 10;
-  digits[2] = (elapsedTime / 10) % 10;
-  digits[3] = elapsedTime % 10;
+      randomNum = random(1, 4); // 1-3
+      Serial.println(randomNum);
+      digitalWrite(led1, LOW);
+      digitalWrite(led2, LOW);
+      digitalWrite(led3, LOW);
 
-  // debug print
-  char buffer[20];
-  sprintf(buffer, "%d.%d%d%d", digits[0], digits[1], digits[2], digits[3]);
-  Serial.println(buffer);
-  
-  if (currTime - previous >= interval) {
-    previous = currTime;
-    displayDigit(currentDigit, digits[currentDigit]);
-    currentDigit = (currentDigit + 1) % 4;
+      if(randomNum == 1){
+        digitalWrite(led1, HIGH);
+      } else if(randomNum == 2){
+        digitalWrite(led2, HIGH);
+      } else if(randomNum == 3){
+        digitalWrite(led3, HIGH);
+      } else{
+        digitalWrite(led1, HIGH);
+        digitalWrite(led2, HIGH);
+        digitalWrite(led3, HIGH);
+      }
+
+    }
+    unsigned long currTime = millis();
+    elapsedTime = currTime - startTime;
+    
+    // figure out all places(1000s, 100s, 10s, 1s)
+    digits[0] = (elapsedTime / 1000) % 10;
+    digits[1] = (elapsedTime / 100) % 10;
+    digits[2] = (elapsedTime / 10) % 10;
+    digits[3] = elapsedTime % 10;
+
+    // debug print
+    // char buffer[20];
+    // sprintf(buffer, "%d.%d%d%d", digits[0], digits[1], digits[2], digits[3]);
+    // Serial.println(buffer);
+    
+    // constanly update the digit display
+    if (currTime - previous >= interval) {
+      previous = currTime;
+      displayDigit(currentDigit, digits[currentDigit]);
+      currentDigit = (currentDigit + 1) % 4;
+    }
+
+  }
+  else{
+    // if we recieve anything other than a 0, reset timer and reser LEDS
+    timerOn = false;
+    digitalWrite(led1, LOW);
+    digitalWrite(led2, LOW);
+    digitalWrite(led3, LOW);
   }
 }
 
@@ -95,4 +149,12 @@ void displayDigit(int digit, int number) {
   
   //turn on current digit
   digitalWrite(digitPins[digit], LOW);
+}
+
+void receiveEvent(int howMany)
+{
+  while (Wire.available()){
+    x = Wire.read();
+  }
+
 }
