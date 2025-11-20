@@ -131,21 +131,22 @@ void loop() {
   }
   else if (x == 0){
     // if we recieve anything other than a 0, reset timer and reset LEDS
+    // check if the timer was running. if so, stop it and record the time.
     if(timerOn){
       timerOn = false;
-
       fastestTime[0] = digits[0];
       fastestTime[1] = digits[1];
       fastestTime[2] = digits[2];
       fastestTime[3] = digits[3];
     }
 
+    //reset the LEDS
     digitalWrite(led1, LOW);
     digitalWrite(led2, LOW);
     digitalWrite(led3, LOW);
 
+    // update the digit display with the recorded time
     unsigned long currTime = millis();
-
     if (currTime - previous >= interval) {
       previous = currTime;
       displayDigit(currentDigit, fastestTime[currentDigit]);
@@ -169,7 +170,6 @@ void displayDigit(int digit, int number) {
   for (int i = 0; i < 8; i++) {
     digitalWrite(segmentPins[i], (pattern >> i) & 0x01);
   }
-  
   //turn on current digit
   digitalWrite(digitPins[digit], LOW);
 }
