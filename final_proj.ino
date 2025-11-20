@@ -35,6 +35,12 @@ unsigned long fastestTime=30000; // tracks fastest time for the game
 unsigned long delayTime=1000; //delay between rounds, will eventually be random
 unsigned long currTime=0;
 
+char clockChar = 'A';
+
+const int clockAdr = 4;
+const int player1Adr = 0x08;
+const int player2Adr = 0x12;
+
 const int rs = 12, en = 11, d4 = 10, d5 = 9, d6 = 6, d7 = 5;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
@@ -186,19 +192,31 @@ void mode_select(){
     prevStartButtonState = reading2;
 }
 
+
+byte x=1;
+byte pByte=0;
+bool roundStarted=0;
 void play_game()
 {
     updatePlayingScreen();
-
     unsigned long roundStartTime=0;
     // SEND SIGNAL TO DAWID"S BOARD TO TURN ON BOARD LED AND START CLOCK
     if (!ledState && (millis() - currTime >= delayTime)) { //turn on led after random delayTime period
-      ledState = 1;
 
+      ledState = 1;
+      Wire.beginTransmission(clockAdr); // transmit to device #4     // sends five bytes
+      Wire.write(x);              // sends one byte
+      Wire.endTransmission();  
+      roundStarted=1;  
       roundStartTime=millis();
     }
 
-    
+    Wire.requestFrom(player1)
+
+
+
+
+    prevModeButtonState = reading;
     //**READ FROM NEHA/PAULINA'S BOARD
     //UPDATE SCORES\
     //SEND SIGNAL TO DAWID's BOARD TO TURN OFF LED
@@ -266,7 +284,7 @@ void setup() {
 
   Serial.begin(9600);
 
-  currentState = MODE_SELECTION; //Start in MODE SELECTION state
+  currentState = PLAYING; //Start in MODE SELECTION state
 }
 
 void loop() {
