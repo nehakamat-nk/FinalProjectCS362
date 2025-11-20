@@ -3,7 +3,6 @@
 #include <Wire.h>
 
 //Test led for players
-int testLed=4;
 bool ledState=0;
 
 //Pins for Mode changing button and start button to start the game
@@ -19,22 +18,17 @@ int modeButtonState=1;
 unsigned long startButtonTime=0;
 unsigned long modeButtonTime=0;
 
-const int player1Button = 8;
-unsigned long player1Time=0;
-int player1ButtonState=0;
-int prevPlayer1ButtonState =0;
-
-const int player2Button=7;
-unsigned long player2Time=0;
-int player2ButtonState=0;
-int prevPlayer2ButtonState=0;
-
 bool teamMode = false; //true if in 2v2 mode
 
 int player1Score=0;
 int player2Score=0;
 int player3Score=0;
 int player4Score=0;
+int winningPlayer=0;
+
+int team1Score=0;
+int team2Score=0;
+int winningTeam=0;
 
 unsigned long previousRoundTime=0; //track time for specific round
 unsigned long fastestTime=30000; // tracks fastest time for the game
@@ -64,69 +58,84 @@ String getMode()
   }
 }
 
+bool isEnd()
+{
+  if (teamMode)
+  {
+    if (team1Score>9 || team2Score >9)
+    {
+      return true;
+    }
+  }
+  else
+  {
+    if (player1Score >9 || player2Score>9 || player3Score >9 || player4Score>9)
+    {
+      return true;
+    }
+  }
+  return false;
+}
 void updatePlayingScreen() //Show player scores within PLAYING state
 {
   lcd.setCursor(0,0);
   char topLine[20];
-  if (player1Score >=11)
+  char bottomLine[20];
+  if (teamMode)
   {
-    snprintf(topLine, sizeof(topLine), "P1:%d   P2:%d ", player1Score, player2Score);
+  snprintf(topLine, sizeof(topLine), "    Team 1: %d ", team1Score);
+  snprintf(bottomLine, sizeof(bottomLine), "    Team 2: %d ", team2Score);
   }
+  else
+  {
   snprintf(topLine, sizeof(topLine), "P1:%d   P2:%d ", player1Score, player2Score);
+  snprintf(bottomLine, sizeof(bottomLine), "P3:%d   P4:%d", player3Score, player4Score);
+  }
+
   lcd.print(topLine);
   lcd.setCursor(0,1);
 
-  char bottomLine[20];
-  snprintf(bottomLine, sizeof(bottomLine), "P3:%d   P4:%d", player3Score, player4Score);
+
   lcd.print(bottomLine);
 }
 
 void endOfGame() //Show Final after-game screen
 {
 
-  //Print player Scores and most recent time
-  lcd.setCursor(0,0);
   char topLine[20];
-  snprintf(topLine, sizeof(topLine), "PLAYER 1 WINS!");
+  char bottomLine[20];
+  if (teamMode)
+  {
+     snprintf(topLine, sizeof(topLine), "TEAM %d WINS!", winningTeam); 
+  }
+  else
+  {
+      snprintf(topLine, sizeof(topLine), "PLAYER %d WINS!", winningPlayer); 
+  }
+  lcd.setCursor(0,0);
   lcd.print(topLine);
   lcd.setCursor(0,1);
-  char bottomLine[20];
   snprintf(bottomLine, sizeof(bottomLine), "Best Time: %lu", fastestTime);
   lcd.print(bottomLine);
 }
 
-void setup() {
-  // set up the LCD's number of columns and rows:
-  Wire.begin();
-  lcd.begin(16, 2);
-
-  pinMode(player1Button, INPUT_PULLUP);
-  pinMode(player2Button, INPUT_PULLUP);
-  pinMode(modeButtonPin, INPUT_PULLUP);
-  pinMode(startButtonPin, INPUT_PULLUP);
-
-  pinMode(testLed, OUTPUT);
-  Serial.begin(9600);
-
-  currentState = MODE_SELECTION; //Start in MODE SELECTION state
-}
 
 void mode_select(){
   lcd.setCursor(0,0);
     lcd.print("WELCOME");
     lcd.setCursor(0,1);
     char bottomLine[20];
-    snprintf(bottomLine, sizeof(bottomLine), "Mode: %s", getMode().c_str());
+    snprintf(bottomLine, sizeof(bottomLine), "Mode: %s", getMode().c_str()); //show mode selected
     lcd.print(bottomLine);
 
-    //Read button Pin for changing mode
+    
     int reading = digitalRead(modeButtonPin);
     if (reading != prevModeButtonState)
     {
       modeButtonTime =millis();
     }
 
-    //Change mode if applicable
+    //start game button
     if ((millis() - modeButtonTime) >= 50 )
     {
       if (reading != modeButtonState)
@@ -134,7 +143,7 @@ void mode_select(){
         modeButtonState=reading;
         if (modeButtonState ==0)
         {
-          lcd.clear();
+          lcd.clear(); //reset variables for start of game
           previousRoundTime=0;
           fastestTime=30000;
           currTime =0;
@@ -142,19 +151,24 @@ void mode_select(){
           player2Score=0;
           player3Score=0;
           player4Score=0;
+
+          team1Score=0;
+          team2Score=0;
+          winningPlayer=0;
+          winningTeam=0;
           currentState = PLAYING;
         }
       }
     }
 
-    //read start button pin for starting game
+    //read start button pin for changing mode
     int reading2 = digitalRead(startButtonPin);
     if (reading2 != prevStartButtonState)
     {
       startButtonTime =millis();
     }
 
-    //start game accordingly
+    //change mode
     if ((millis() - startButtonTime) >= 50 )
     {
       if (reading2 != startButtonState)
@@ -178,19 +192,19 @@ void play_game()
 
     unsigned long roundStartTime=0;
     // SEND SIGNAL TO DAWID"S BOARD TO TURN ON BOARD LED AND START CLOCK
-    if (!ledState && (millis() - currTime >= delayTime)) {
+    if (!ledState && (millis() - currTime >= delayTime)) { //turn on led after random delayTime period
       ledState = 1;
-      digitalWrite(testLed, HIGH);
+
       roundStartTime=millis();
     }
 
     
     //**READ FROM NEHA/PAULINA'S BOARD
-    //UPDATE SCORES
+    //UPDATE SCORES\
     //SEND SIGNAL TO DAWID's BOARD TO TURN OFF LED
-    
+
     // --- End condition ---
-    if (player1Score >= 10 || player2Score >= 10 || player3Score >=10 || player4Score >= 10) {
+    if (isEnd()) {
       lcd.clear();
       endOfGame();
       currentState = END_OF_GAME;
@@ -242,6 +256,18 @@ void end_of_game()
     prevStartButtonState = reading2;
 }
 
+void setup() {
+  // set up the LCD's number of columns and rows:
+  Wire.begin();
+  lcd.begin(16, 2);
+
+  pinMode(modeButtonPin, INPUT_PULLUP);
+  pinMode(startButtonPin, INPUT_PULLUP);
+
+  Serial.begin(9600);
+
+  currentState = MODE_SELECTION; //Start in MODE SELECTION state
+}
 
 void loop() {
 if (currentState == MODE_SELECTION)
