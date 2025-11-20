@@ -10,6 +10,7 @@ int led3 = A2;
 int x = 0;
 long randomNum = 0;
 bool timerOn = false;
+char fastestTime [4];
 
 int pinA = 2;
 int pinB = 3;
@@ -55,6 +56,9 @@ void setup() {
   Wire.onReceive(receiveEvent);
   Serial.begin(9600);
 
+  // needed for random
+  randomSeed(analogRead(A3));
+
   // debug prints
   // Serial.println("Countdown Timer Started: 00:00");
 
@@ -81,12 +85,15 @@ void loop() {
       startTime = millis();
       timerOn = true;
 
+      // get random num
       randomNum = random(1, 4); // 1-3
       Serial.println(randomNum);
+      // reset all leds 
       digitalWrite(led1, LOW);
       digitalWrite(led2, LOW);
       digitalWrite(led3, LOW);
 
+      // update leds based on what random number is recieved
       if(randomNum == 1){
         digitalWrite(led1, HIGH);
       } else if(randomNum == 2){
@@ -122,12 +129,28 @@ void loop() {
     }
 
   }
-  else{
-    // if we recieve anything other than a 0, reset timer and reser LEDS
-    timerOn = false;
+  else if (x == 0){
+    // if we recieve anything other than a 0, reset timer and reset LEDS
+    if(timerOn){
+      timerOn = false;
+
+      fastestTime[0] = digits[0];
+      fastestTime[1] = digits[1];
+      fastestTime[2] = digits[2];
+      fastestTime[3] = digits[3];
+    }
+
     digitalWrite(led1, LOW);
     digitalWrite(led2, LOW);
     digitalWrite(led3, LOW);
+
+    unsigned long currTime = millis();
+
+    if (currTime - previous >= interval) {
+      previous = currTime;
+      displayDigit(currentDigit, fastestTime[currentDigit]);
+      currentDigit = (currentDigit + 1) % 4;
+    }
   }
 }
 
@@ -153,6 +176,7 @@ void displayDigit(int digit, int number) {
 
 void receiveEvent(int howMany)
 {
+  // check if anything is sent
   while (Wire.available()){
     x = Wire.read();
   }
