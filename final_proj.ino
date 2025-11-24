@@ -3,7 +3,7 @@
 #include <Wire.h>
 
 //Test led for players
-bool ledState=0;
+bool roundStarted=0;
 
 //Pins for Mode changing button and start button to start the game
 const int modeButtonPin = 2;
@@ -32,14 +32,15 @@ int winningTeam=0;
 
 unsigned long previousRoundTime=0; //track time for specific round
 unsigned long fastestTime=30000; // tracks fastest time for the game
-unsigned long delayTime=1000; //delay between rounds, will eventually be random
+unsigned long delayTime=5000; //delay between rounds, will eventually be random
 unsigned long currTime=0;
+unsigned long roundStartTime=0;
 
 char clockChar = 'A';
 
 const int clockAdr = 4;
 const int player1Adr = 0x08;
-const int player2Adr = 0x12;
+const int player2Adr = 0x09;
 
 const int rs = 12, en = 11, d4 = 10, d5 = 9, d6 = 6, d7 = 5;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
@@ -152,7 +153,6 @@ void mode_select(){
           lcd.clear(); //reset variables for start of game
           previousRoundTime=0;
           fastestTime=30000;
-          currTime =0;
           player1Score=0;
           player2Score=0;
           player3Score=0;
@@ -162,6 +162,8 @@ void mode_select(){
           team2Score=0;
           winningPlayer=0;
           winningTeam=0;
+          currTime=millis();
+          updatePlayingScreen();
           currentState = PLAYING;
         }
       }
@@ -193,32 +195,102 @@ void mode_select(){
 }
 
 
+char result='X';
 byte x=1;
-byte pByte=0;
-bool roundStarted=0;
+byte y =2;
+byte res=0;
+void end_of_round()
+{
+  switch (res){
+    case 1: //P1 SCORE or TEAM 1 SCORE
+      player1Score++;
+      team1Score++;
+      Wire.beginTransmission(player1Adr); // transmit to device #4 
+      Wire.write(1);              // sends one byte
+      Wire.endTransmission();
+      break;
+    case 2: //P2 SCORE or TEAM 1 SCORE
+      player2Score++;
+      team1Score++;
+      Wire.beginTransmission(player1Adr); // transmit to device #4   
+      Wire.write(2);              // sends one byte
+      Wire.endTransmission();
+      break;
+    case 3: //P3 SCORE or TEAM 2 SCORE
+      player3Score++;
+      team2Score++;
+      Wire.beginTransmission(player2Adr); // transmit to device #4   
+      Wire.write(1);              // sends one byte
+      Wire.endTransmission();
+      break;
+    case 4: //P4 SCORE or TEAM 2 SCORE
+      player4Score++;
+      team2Score++;
+      Wire.beginTransmission(player2Adr); // transmit to device #4   
+      Wire.write(2);              // sends one byte
+      Wire.endTransmission();
+      break;
+    default:
+      return;
+  }
+
+    //EXECUTE IF SOMEBODY SCORED
+    Wire.beginTransmission(clockAdr);  //STOP CLOCK
+    Wire.write(0);              //WITH x=0
+    Wire.endTransmission();
+
+    roundStarted=false;
+    delayTime = random(2000, 6000);
+    currTime=millis();
+    previousRoundTime = millis()-roundStartTime;
+
+    if (previousRoundTime < fastestTime)
+    {
+      fastestTime = previousRoundTime;
+    }
+    updatePlayingScreen();
+ 
+ 
+}
+
+
 void play_game()
 {
-    updatePlayingScreen();
-    unsigned long roundStartTime=0;
     // SEND SIGNAL TO DAWID"S BOARD TO TURN ON BOARD LED AND START CLOCK
-    if (!ledState && (millis() - currTime >= delayTime)) { //turn on led after random delayTime period
+    if (!roundStarted && (millis() - currTime >= delayTime)) { //turn on led after random delayTime period
 
-      ledState = 1;
-      Wire.beginTransmission(clockAdr); // transmit to device #4     // sends five bytes
-      Wire.write(x);              // sends one byte
-      Wire.endTransmission();  
-      roundStarted=1;  
-      roundStartTime=millis();
+      //TURN OFF LEDS
+      Wire.beginTransmission(player1Adr);   
+      Wire.write(0);            
+      Wire.endTransmission();
+      Wire.beginTransmission(player2Adr); 
+      Wire.write(0);              
+      Wire.endTransmission();
+
+      //Tell Clock to start
+      roundStarted = 1;
+      Wire.beginTransmission(clockAdr);  //START CLOCK AND LEDS
+      Wire.write(x);              //WITH x=1
+      Wire.endTransmission();   
+      roundStartTime=millis(); //keep track of start of round
     }
 
-    Wire.requestFrom(player1)
+    if (roundStarted)
+    {
+      Wire.requestFrom(player1Adr, 1);//request one byte from player 1
+      Wire.requestFrom(player2Adr, 1);
+
+      res=0; //0 by default, will read num from peripherals
+      while (Wire.available()) { 
+      res = Wire.read(); // receive a byte 
+      }
+
+      end_of_round();
+    }
 
 
 
-
-    prevModeButtonState = reading;
-    //**READ FROM NEHA/PAULINA'S BOARD
-    //UPDATE SCORES\
+    //UPDATE SCORES
     //SEND SIGNAL TO DAWID's BOARD TO TURN OFF LED
 
     // --- End condition ---
@@ -227,6 +299,74 @@ void play_game()
       endOfGame();
       currentState = END_OF_GAME;
     }
+}
+
+
+void play_gameTEST()
+{
+    int reading = digitalRead(modeButtonPin);
+    if (reading != prevModeButtonState) //Pin 2
+    {
+      modeButtonTime =millis();
+    }
+
+
+    if ((millis() - modeButtonTime) >= 50 ) //pin 2,, turns on clock
+    {
+      if (reading != modeButtonState)
+      {
+        modeButtonState=reading;
+        if (modeButtonState ==0)
+        {
+          Wire.beginTransmission(clockAdr); // transmit to device #4     // sends five bytes
+          Wire.write(x);              // sends one byte
+          Wire.endTransmission();  
+          Wire.beginTransmission(player1Adr); // transmit to device #4     // sends five bytes
+          Wire.write(2);              // sends one byte
+          Wire.endTransmission();  
+        }
+      }
+    }
+
+
+    int reading2 = digitalRead(startButtonPin);
+    if (reading2 != prevStartButtonState) //Pin 3
+    {
+      startButtonTime =millis();
+    }
+
+    if ((millis() - startButtonTime) >= 50 )//pin 3, turns on clock
+    {
+      if (reading2 != startButtonState)
+      {
+        startButtonState=reading2;
+        if (startButtonState ==0)
+        {
+          Wire.beginTransmission(clockAdr); // transmit to device #4     // sends five bytes
+          Wire.write(0);              // sends one byte
+          Wire.endTransmission();  
+          Wire.beginTransmission(player1Adr); // transmit to device #4     // sends five bytes
+          Wire.write(1);              // sends one byte
+          Wire.endTransmission();  
+        }
+      }
+    }
+
+
+
+
+      res=0; //0 by default, will read num from peripherals
+      while (Wire.available()) { 
+      res = Wire.read(); // receive a byte 
+      }
+
+      end_of_round();
+    prevStartButtonState = reading2;
+    prevModeButtonState = reading;
+    //**READ FROM NEHA/PAULINA'S BOARD
+    //UPDATE SCORES\
+    //SEND SIGNAL TO DAWID's BOARD TO TURN OFF LED
+
 }
 
 void end_of_game()
@@ -293,7 +433,7 @@ if (currentState == MODE_SELECTION)
     mode_select();
   }
 else if (currentState == PLAYING) {
-    play_game();
+    play_gameTEST();
   }
 else if (currentState == END_OF_GAME)
   {
