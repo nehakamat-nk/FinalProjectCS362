@@ -1,25 +1,27 @@
-
-
 #include <Wire.h>
 
 // I2C slave address for this Arduino
-#define I2C_ADDRESS 0x08
+#define I2C_ADDRESS 0x08  
+
+#define PLAYER1_NUMBER 1
+#define PLAYER2_NUMBER 2
 
 // Button pins - using digital pins with internal pull-up resistors
 const int buttonPins[2] = {8, 9};
 
-// LED pins - one for each player (lights up when main board confirms winner)
+// LED pins
 const int ledPins[2] = {2, 3};
+int x = 0;
 
 // Game state variables
-volatile bool roundActive = false;           // Whether buttons should be monitored
-volatile bool buttonPressed = false;         // Whether any button has been pressed this round
-volatile int pressedPlayer = -1;             // Which player pressed button (0-1), -1 if none
-volatile unsigned long buttonPressTime = 0;  // Time when button was pressed (for reaction time)
+volatile bool roundActive = false;
+volatile bool buttonPressed = false;
+volatile int pressedPlayer = -1;
+volatile unsigned long buttonPressTime = 0;
 
 // Variables for debouncing
 volatile unsigned long lastDebounceTime[2] = {0, 0};
-const unsigned long debounceDelay = 50; // 50ms debounce delay
+const unsigned long debounceDelay = 50;
 
 // Startup sequence state machine variables
 enum StartupState {
@@ -34,40 +36,50 @@ enum StartupState {
 
 StartupState startupState = STARTUP_IDLE;
 unsigned long startupTimer = 0;
-const unsigned long startupStepTime = 150;  // Time for each LED in sequence
+const unsigned long startupStepTime = 150;
 
 void setup() {
-  // Configure button pins as inputs with pull-up resistors
   for (int i = 0; i < 2; i++) {
     pinMode(buttonPins[i], INPUT_PULLUP);
   }
   
-  // Configure LED pins as outputs
   for (int i = 0; i < 2; i++) {
     pinMode(ledPins[i], OUTPUT);
     digitalWrite(ledPins[i], LOW);
   }
   
-  // Initialize I2C as slave
   Wire.begin(I2C_ADDRESS);
   Wire.onReceive(receiveEvent);
   Wire.onRequest(requestEvent);
   
-  // Start the LED startup sequence
   startupState = STARTUP_LED1;
   startupTimer = millis();
 }
 
 void loop() {
-  // Run startup sequence if not done
   if (startupState != STARTUP_DONE) {
     runStartupSequence();
   }
   
-  // Only check buttons when a round is active and no button pressed yet
-  if (roundActive && !buttonPressed) {
-    checkButtons();
+  //check
+  checkButtons();
+
+  if (x==1)
+  {
+    digitalWrite(ledPins[0], HIGH);
+    digitalWrite(ledPins[1], LOW);
   }
+   else if (x==2)
+  {
+    digitalWrite(ledPins[0], LOW);
+    digitalWrite(ledPins[1], HIGH);
+  }
+  else
+  {
+    digitalWrite(ledPins[0], LOW);
+    digitalWrite(ledPins[1], LOW); 
+  }
+  
 }
 
 void runStartupSequence() {
@@ -127,56 +139,48 @@ void runStartupSequence() {
 void checkButtons() {
   unsigned long currentTime = millis();
   
-  for (int i = 0; i < 2; i++) {
-    int buttonState = digitalRead(buttonPins[i]);
-    
-    if (buttonState == LOW && (currentTime - lastDebounceTime[i]) > debounceDelay) {
-      lastDebounceTime[i] = currentTime;
-      buttonPressed = true;
-      pressedPlayer = i;
-      buttonPressTime = currentTime;
-      break;
-    }
+  // Check Player 1 button (pin 8)
+  int button1State = digitalRead(buttonPins[0]);
+  if (button1State == LOW && (currentTime - lastDebounceTime[0]) > debounceDelay) {
+    lastDebounceTime[0] = currentTime;
+    buttonPressed = true;
+    pressedPlayer = 0;
+    buttonPressTime = currentTime;
+    return;
+  }
+  
+  // Check Player 2 button (pin 9)
+  int button2State = digitalRead(buttonPins[1]);
+  if (button2State == LOW && (currentTime - lastDebounceTime[1]) > debounceDelay) {
+    lastDebounceTime[1] = currentTime;
+    buttonPressed = true;
+    pressedPlayer = 1;
+    buttonPressTime = currentTime;
+    return;
   }
 }
 
 void receiveEvent(int numBytes) {
   if (Wire.available()) {
-    char command = Wire.read();
+    x = Wire.read();
     
-    switch (command) {
-      case 'S':
-        startRound();
-        break;
-        
-      case 'E':
-        endRound();
-        break;
-        
-      case 'R':
-        resetGame();
-        break;
-        
-      case 'W':
-        if (Wire.available()) {
-          int player = Wire.read();
-          if (player >= 0 && player < 2) {
-            digitalWrite(ledPins[player], HIGH);
-          }
-        }
-        break;
-        
-      case 'O':
-        turnOffAllLeds();
-        break;
+    if (x == 'S') {
+      startRound();
     }
   }
 }
 
 void requestEvent() {
-  if (buttonPressed && pressedPlayer >= 0) {
-    Wire.write(pressedPlayer);
-  } else {
+  // Player 1 pressed
+  if (buttonPressed && pressedPlayer == 0) {
+    Wire.write(PLAYER1_NUMBER);  // Sends 1
+  } 
+  // Player 2 pressed
+  else if (buttonPressed && pressedPlayer == 1) {
+    Wire.write(PLAYER2_NUMBER);  // Sends 2
+  }
+  // No button pressed
+  else {
     Wire.write(255);
   }
 }
