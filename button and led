@@ -19,8 +19,9 @@ unsigned long buttonPressTime = 0;
 int playerID = 0;
 
 void setup() {
+  Serial.begin(9600)
   for (int i = 0; i < 2; i++) {
-    pinMode(buttonPins[i], INPUT_PULLDOWN);
+    pinMode(buttonPins[i], INPUT_PULLUP);
   }
   
   for (int i = 0; i < 2; i++) {
@@ -65,6 +66,7 @@ void checkButtons() {
   int button1State = digitalRead(buttonPins[0]);
   if (button1State == LOW){
     if((currentTime - lastDebounceTime[0]) > debounceDelay) {
+      Serial.println("button1 pressed");
       lastDebounceTime[0] = currentTime;
       buttonPressed = true;
       buttonPressTime = currentTime;
@@ -76,6 +78,7 @@ void checkButtons() {
   int button2State = digitalRead(buttonPins[1]);
   if (button2State == LOW){
     if((currentTime - lastDebounceTime[1]) > debounceDelay) {
+      Serial.println("button2 pressed");
       lastDebounceTime[1] = currentTime;
       buttonPressed = true;
       buttonPressTime = currentTime;
@@ -85,8 +88,10 @@ void checkButtons() {
 }
 
 void receiveEvent(int numBytes) {
+
   if (Wire.available()) {
     x = Wire.read();
+    Serial.println("Event Received");
   }
 }
 
@@ -95,13 +100,16 @@ void requestEvent() {
     if (playerID == 1) {
     Wire.write(1);  // Sends 1
     buttonPressed = false;
+    Serial.println("signal 1 sent");
     } 
     // Player 2 pressed
     else if (playerID == 2) {
       Wire.write(2);  // Sends 2
       buttonPressed = false;
+      Serial.println("signal 2 sent");
     }
   }else {
     Wire.write(255);
+    Serial.println("signal 255 sent: error");
   }
 }
