@@ -1,69 +1,44 @@
 #include <Wire.h>
 
 // I2C slave address for this Arduino
-#define I2C_ADDRESS 0x08
+#define I2C_ADDRESS 0x08  
 
 // Button pins - using digital pins with internal pull-up resistors
-const int buttonPins[2] = {10, 12};
+const int buttonPins[2] = {8, 9};
 
-// LED pins - one for each player (lights up when they win)
-const int ledPins[2] = {11, 13};
-int x=0;
+// LED pins
+const int ledPins[2] = {2, 3};
+int x = 0;
 
-// Game state variables
-volatile bool roundActive = false;           // Whether buttons should be monitored
-volatile bool buttonPressed = false;         // Whether any button has been pressed this round
-volatile int pressedPlayer = -1;             // Which player pressed button (0-1), -1 if none
-volatile unsigned long buttonPressTime = 0;  // Time when button was pressed (for reaction time)
-
-// Variables for debouncing
+// Variables for debouncing + buttons
 volatile unsigned long lastDebounceTime[2] = {0, 0};
-const unsigned long debounceDelay = 50; // 50ms debounce delay
+const unsigned long debounceDelay = 50;
+bool buttonPressed = false;
+unsigned long buttonPressTime = 0;
 
-// Startup sequence state machine variables
-enum StartupState {
-  STARTUP_IDLE,
-  STARTUP_LED1,
-  STARTUP_LED2,
-  STARTUP_PAUSE,
-  STARTUP_ALL_ON,
-  STARTUP_ALL_OFF,
-  STARTUP_DONE
-};
-
-StartupState startupState = STARTUP_IDLE;
-unsigned long startupTimer = 0;
-const unsigned long startupStepTime = 150;  // Time for each LED in sequence
+int playerID = 0;
 
 void setup() {
-  // Configure button pins as inputs with pull-up resistors
   for (int i = 0; i < 2; i++) {
-    pinMode(buttonPins[i], INPUT_PULLUP);
+    pinMode(buttonPins[i], INPUT_PULLDOWN);
   }
   
-  // Configure LED pins as outputs
   for (int i = 0; i < 2; i++) {
     pinMode(ledPins[i], OUTPUT);
     digitalWrite(ledPins[i], LOW);
   }
   
-  // Initialize I2C as slave
-  Wire.begin(I2C_ADDRESS);
+  Wire.begin(0x08);
   Wire.onReceive(receiveEvent);
   Wire.onRequest(requestEvent);
-  
-  // Start the LED startup sequence
-  startupState = STARTUP_LED1;
-  startupTimer = millis();
+
+  digitalWrite(ledPins[0], LOW);
+  digitalWrite(ledPins[1], LOW);
 }
 
 void loop() {
-  // Run startup sequence if not done
-  if (startupState != STARTUP_DONE) {
-    runStartupSequence();
-  }
-  
-  // Only check buttons when a round is active and no button pressed yet
+  //check
+  checkButtons();
 
   if (x==1)
   {
@@ -80,77 +55,31 @@ void loop() {
     digitalWrite(ledPins[0], LOW);
     digitalWrite(ledPins[1], LOW); 
   }
-  // if (roundActive && !buttonPressed) {
-  //   checkButtons();
-  // }
-}
-
-void runStartupSequence() {
-  unsigned long currentTime = millis();
   
-  switch (startupState) {
-    case STARTUP_LED1:
-      if (currentTime - startupTimer >= startupStepTime) {
-        digitalWrite(ledPins[0], HIGH);
-        startupState = STARTUP_LED2;
-        startupTimer = currentTime;
-      }
-      break;
-      
-    case STARTUP_LED2:
-      if (currentTime - startupTimer >= startupStepTime) {
-        digitalWrite(ledPins[1], HIGH);
-        startupState = STARTUP_PAUSE;
-        startupTimer = currentTime;
-      }
-      break;
-      
-    case STARTUP_PAUSE:
-      if (currentTime - startupTimer >= 300) {
-        turnOffAllLeds();
-        startupState = STARTUP_ALL_OFF;
-        startupTimer = currentTime;
-      }
-      break;
-      
-    case STARTUP_ALL_OFF:
-      if (currentTime - startupTimer >= 200) {
-        for (int i = 0; i < 2; i++) {
-          digitalWrite(ledPins[i], HIGH);
-        }
-        startupState = STARTUP_ALL_ON;
-        startupTimer = currentTime;
-      }
-      break;
-      
-    case STARTUP_ALL_ON:
-      if (currentTime - startupTimer >= 200) {
-        turnOffAllLeds();
-        startupState = STARTUP_DONE;
-      }
-      break;
-      
-    case STARTUP_DONE:
-      break;
-      
-    default:
-      startupState = STARTUP_DONE;
-      break;
-  }
 }
 
 void checkButtons() {
   unsigned long currentTime = millis();
   
-  for (int i = 0; i < 2; i++) {
-    int buttonState = digitalRead(buttonPins[i]);
-    
-    if (buttonState == LOW && (currentTime - lastDebounceTime[i]) > debounceDelay) {
-      lastDebounceTime[i] = currentTime;
+  // Check Player 1 button (pin 8)
+  int button1State = digitalRead(buttonPins[0]);
+  if (button1State == LOW){
+    if((currentTime - lastDebounceTime[0]) > debounceDelay) {
+      lastDebounceTime[0] = currentTime;
       buttonPressed = true;
-      pressedPlayer = i;
       buttonPressTime = currentTime;
-      break;
+      playerID = 1;
+    }
+  }
+  
+  // Check Player 2 button (pin 9)
+  int button2State = digitalRead(buttonPins[1]);
+  if (button2State == LOW){
+    if((currentTime - lastDebounceTime[1]) > debounceDelay) {
+      lastDebounceTime[1] = currentTime;
+      buttonPressed = true;
+      buttonPressTime = currentTime;
+      playerID = 2;
     }
   }
 }
@@ -158,68 +87,21 @@ void checkButtons() {
 void receiveEvent(int numBytes) {
   if (Wire.available()) {
     x = Wire.read();
-    
-    // switch (command) {
-    //   case 1:
-    //     startRound();
-    //     break;
-        
-    //   case 0:
-    //     x=0
-    //     break;
-        
-    //   case 'R':
-    //     resetGame();
-    //     break;
-        
-    //   case 'W':
-    //     if (Wire.available()) {
-    //       int player = Wire.read();
-    //       if (player >= 0 && player < 2) {
-    //         digitalWrite(ledPins[player], HIGH);
-    //       }
-    //     }
-    //     break;
-        
-    //   case 'O':
-    //     turnOffAllLeds();
-    //     break;
-    // }
   }
 }
 
 void requestEvent() {
-  if (buttonPressed && pressedPlayer >= 0) {
-    Wire.write(pressedPlayer);
-  } else {
+  if(buttonPressed){
+    if (playerID == 1) {
+    Wire.write(1);  // Sends 1
+    buttonPressed = false;
+    } 
+    // Player 2 pressed
+    else if (playerID == 2) {
+      Wire.write(2);  // Sends 2
+      buttonPressed = false;
+    }
+  }else {
     Wire.write(255);
-  }
-}
-
-void startRound() {
-  roundActive = true;
-  buttonPressed = false;
-  pressedPlayer = -1;
-  turnOffAllLeds();
-}
-
-void endRound() {
-  roundActive = false;
-}
-
-void resetGame() {
-  roundActive = false;
-  buttonPressed = false;
-  pressedPlayer = -1;
-  turnOffAllLeds();
-  
-  for (int i = 0; i < 2; i++) {
-    lastDebounceTime[i] = 0;
-  }
-}
-
-void turnOffAllLeds() {
-  for (int i = 0; i < 2; i++) {
-    digitalWrite(ledPins[i], LOW);
   }
 }
