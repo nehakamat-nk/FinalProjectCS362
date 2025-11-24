@@ -376,9 +376,11 @@ void play_gameTEST()
 
         res=0; //0 by default, will read num from peripherals
         Wire.requestFrom(player1Adr, 1);
-          if (Wire.available()) { 
+          while (Wire.available()) { 
           res = Wire.read(); // receive a byte 
           }
+          
+      end_of_round();
 
       // if (roundStarted)
       // {
