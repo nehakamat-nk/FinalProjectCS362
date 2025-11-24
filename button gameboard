@@ -340,7 +340,7 @@ void play_gameTEST()
           Wire.beginTransmission(clockAdr); // transmit to device #4 
           Wire.write(x);              // sends one byte
           Wire.endTransmission();  
-          Wire.beginTransmission(player2Adr); // transmit to device #4    
+          Wire.beginTransmission(player1Adr); // transmit to device #4    
           Wire.write(2);              // sends one byte
           Wire.endTransmission();  
         }
@@ -365,7 +365,7 @@ void play_gameTEST()
           Wire.beginTransmission(clockAdr); // transmit to device #4     // sends five bytes
           Wire.write(0);              // sends one byte
           Wire.endTransmission();  
-          Wire.beginTransmission(player2Adr); // transmit to device #4     // sends five bytes
+          Wire.beginTransmission(player1Adr); // transmit to device #4     // sends five bytes
           Wire.write(1);              // sends one byte
           Wire.endTransmission();  
         }
@@ -379,6 +379,8 @@ void play_gameTEST()
           while (Wire.available()) { 
           res = Wire.read(); // receive a byte 
           }
+        
+        Serial.println(res);
           
       end_of_round();
 
