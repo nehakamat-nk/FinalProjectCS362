@@ -1,214 +1,473 @@
+
+#include <LiquidCrystal.h>
 #include <Wire.h>
 
-// I2C slave address for this Arduino
-#define I2C_ADDRESS 0x08  
+//Test led for players
+bool roundStarted=0;
 
-#define PLAYER1_NUMBER 1
-#define PLAYER2_NUMBER 2
+//Pins for Mode changing button and start button to start the game
+const int modeButtonPin = 2;
+const int startButtonPin = 3;
+//Tracking states
+int prevModeButtonState =1;
+int prevStartButtonState=1;
+int startButtonState=1;
+int modeButtonState=1;
 
-// Button pins - using digital pins with internal pull-up resistors
-const int buttonPins[2] = {8, 9};
+//For button debounce
+unsigned long startButtonTime=0;
+unsigned long modeButtonTime=0;
 
-// LED pins
-const int ledPins[2] = {2, 3};
-int x = 0;
+bool teamMode = false; //true if in 2v2 mode
 
-// Game state variables
-volatile bool roundActive = false;
-volatile bool buttonPressed = false;
-volatile int pressedPlayer = -1;
-volatile unsigned long buttonPressTime = 0;
+int player1Score=0;
+int player2Score=0;
+int player3Score=0;
+int player4Score=0;
+int winningPlayer=0;
 
-// Variables for debouncing
-volatile unsigned long lastDebounceTime[2] = {0, 0};
-const unsigned long debounceDelay = 50;
+int team1Score=0;
+int team2Score=0;
+int winningTeam=0;
 
-// Startup sequence state machine variables
-enum StartupState {
-  STARTUP_IDLE,
-  STARTUP_LED1,
-  STARTUP_LED2,
-  STARTUP_PAUSE,
-  STARTUP_ALL_ON,
-  STARTUP_ALL_OFF,
-  STARTUP_DONE
+unsigned long previousRoundTime=0; //track time for specific round
+unsigned long fastestTime=30000; // tracks fastest time for the game
+unsigned long delayTime=5000; //delay between rounds, will eventually be random
+unsigned long currTime=0;
+unsigned long roundStartTime=0;
+
+char clockChar = 'A';
+
+const int clockAdr = 4;
+const int player1Adr = 0x08;
+const int player2Adr = 0x09;
+
+const int rs = 12, en = 11, d4 = 10, d5 = 9, d6 = 6, d7 = 5;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+enum GameState{  //Track game states of selecting mode, playing game, and displaying end of game stats
+  MODE_SELECTION,
+  PLAYING,
+  END_OF_GAME
 };
 
-StartupState startupState = STARTUP_IDLE;
-unsigned long startupTimer = 0;
-const unsigned long startupStepTime = 150;
+GameState currentState;
 
-void setup() {
-  for (int i = 0; i < 2; i++) {
-    pinMode(buttonPins[i], INPUT_PULLUP);
-  }
-  
-  for (int i = 0; i < 2; i++) {
-    pinMode(ledPins[i], OUTPUT);
-    digitalWrite(ledPins[i], LOW);
-  }
-  
-  Wire.begin(I2C_ADDRESS);
-  Wire.onReceive(receiveEvent);
-  Wire.onRequest(requestEvent);
-  
-  startupState = STARTUP_LED1;
-  startupTimer = millis();
-}
-
-void loop() {
-  if (startupState != STARTUP_DONE) {
-    runStartupSequence();
-  }
-  
-  //check
-  checkButtons();
-
-  if (x==1)
+String getMode()
+{
+  if (teamMode)
   {
-    digitalWrite(ledPins[0], HIGH);
-    digitalWrite(ledPins[1], LOW);
-  }
-   else if (x==2)
-  {
-    digitalWrite(ledPins[0], LOW);
-    digitalWrite(ledPins[1], HIGH);
+    return "2v2";
   }
   else
   {
-    digitalWrite(ledPins[0], LOW);
-    digitalWrite(ledPins[1], LOW); 
-  }
-  
-}
-
-void runStartupSequence() {
-  unsigned long currentTime = millis();
-  
-  switch (startupState) {
-    case STARTUP_LED1:
-      if (currentTime - startupTimer >= startupStepTime) {
-        digitalWrite(ledPins[0], HIGH);
-        startupState = STARTUP_LED2;
-        startupTimer = currentTime;
-      }
-      break;
-      
-    case STARTUP_LED2:
-      if (currentTime - startupTimer >= startupStepTime) {
-        digitalWrite(ledPins[1], HIGH);
-        startupState = STARTUP_PAUSE;
-        startupTimer = currentTime;
-      }
-      break;
-      
-    case STARTUP_PAUSE:
-      if (currentTime - startupTimer >= 300) {
-        turnOffAllLeds();
-        startupState = STARTUP_ALL_OFF;
-        startupTimer = currentTime;
-      }
-      break;
-      
-    case STARTUP_ALL_OFF:
-      if (currentTime - startupTimer >= 200) {
-        for (int i = 0; i < 2; i++) {
-          digitalWrite(ledPins[i], HIGH);
-        }
-        startupState = STARTUP_ALL_ON;
-        startupTimer = currentTime;
-      }
-      break;
-      
-    case STARTUP_ALL_ON:
-      if (currentTime - startupTimer >= 200) {
-        turnOffAllLeds();
-        startupState = STARTUP_DONE;
-      }
-      break;
-      
-    case STARTUP_DONE:
-      break;
-      
-    default:
-      startupState = STARTUP_DONE;
-      break;
+    return "4v4";
   }
 }
 
-void checkButtons() {
-  unsigned long currentTime = millis();
-  
-  // Check Player 1 button (pin 8)
-  int button1State = digitalRead(buttonPins[0]);
-  if (button1State == LOW && (currentTime - lastDebounceTime[0]) > debounceDelay) {
-    lastDebounceTime[0] = currentTime;
-    buttonPressed = true;
-    pressedPlayer = 0;
-    buttonPressTime = currentTime;
-    return;
-  }
-  
-  // Check Player 2 button (pin 9)
-  int button2State = digitalRead(buttonPins[1]);
-  if (button2State == LOW && (currentTime - lastDebounceTime[1]) > debounceDelay) {
-    lastDebounceTime[1] = currentTime;
-    buttonPressed = true;
-    pressedPlayer = 1;
-    buttonPressTime = currentTime;
-    return;
-  }
-}
-
-void receiveEvent(int numBytes) {
-  if (Wire.available()) {
-    x = Wire.read();
-    
-    if (x == 'S') {
-      startRound();
+bool isEnd()
+{
+  if (teamMode)
+  {
+    if (team1Score>9 || team2Score >9)
+    {
+      return true;
     }
   }
-}
-
-void requestEvent() {
-  // Player 1 pressed
-  if (buttonPressed && pressedPlayer == 0) {
-    Wire.write(PLAYER1_NUMBER);  // Sends 1
-  } 
-  // Player 2 pressed
-  else if (buttonPressed && pressedPlayer == 1) {
-    Wire.write(PLAYER2_NUMBER);  // Sends 2
+  else
+  {
+    if (player1Score >9 || player2Score>9 || player3Score >9 || player4Score>9)
+    {
+      return true;
+    }
   }
-  // No button pressed
-  else {
-    Wire.write(255);
+  return false;
+}
+void updatePlayingScreen() //Show player scores within PLAYING state
+{
+  lcd.setCursor(0,0);
+  char topLine[20];
+  char bottomLine[20];
+  if (teamMode)
+  {
+  snprintf(topLine, sizeof(topLine), "    Team 1: %d ", team1Score);
+  snprintf(bottomLine, sizeof(bottomLine), "    Team 2: %d ", team2Score);
   }
-}
-
-void startRound() {
-  roundActive = true;
-  buttonPressed = false;
-  pressedPlayer = -1;
-  turnOffAllLeds();
-}
-
-void endRound() {
-  roundActive = false;
-}
-
-void resetGame() {
-  roundActive = false;
-  buttonPressed = false;
-  pressedPlayer = -1;
-  turnOffAllLeds();
-  
-  for (int i = 0; i < 2; i++) {
-    lastDebounceTime[i] = 0;
+  else
+  {
+  snprintf(topLine, sizeof(topLine), "P1:%d   P2:%d ", player1Score, player2Score);
+  snprintf(bottomLine, sizeof(bottomLine), "P3:%d   P4:%d", player3Score, player4Score);
   }
+
+  lcd.print(topLine);
+  lcd.setCursor(0,1);
+
+
+  lcd.print(bottomLine);
 }
 
-void turnOffAllLeds() {
-  for (int i = 0; i < 2; i++) {
-    digitalWrite(ledPins[i], LOW);
+void endOfGame() //Show Final after-game screen
+{
+
+  char topLine[20];
+  char bottomLine[20];
+  if (teamMode)
+  {
+     snprintf(topLine, sizeof(topLine), "TEAM %d WINS!", winningTeam); 
+  }
+  else
+  {
+      snprintf(topLine, sizeof(topLine), "PLAYER %d WINS!", winningPlayer); 
+  }
+  lcd.setCursor(0,0);
+  lcd.print(topLine);
+  lcd.setCursor(0,1);
+  snprintf(bottomLine, sizeof(bottomLine), "Best Time: %lu", fastestTime);
+  lcd.print(bottomLine);
+}
+
+
+void mode_select(){
+  lcd.setCursor(0,0);
+    lcd.print("WELCOME");
+    lcd.setCursor(0,1);
+    char bottomLine[20];
+    snprintf(bottomLine, sizeof(bottomLine), "Mode: %s", getMode().c_str()); //show mode selected
+    lcd.print(bottomLine);
+
+    
+    int reading = digitalRead(modeButtonPin);
+    if (reading != prevModeButtonState)
+    {
+      modeButtonTime =millis();
+    }
+
+    //start game button
+    if ((millis() - modeButtonTime) >= 50 )
+    {
+      if (reading != modeButtonState)
+      {
+        modeButtonState=reading;
+        if (modeButtonState ==0)
+        {
+          lcd.clear(); //reset variables for start of game
+          previousRoundTime=0;
+          fastestTime=30000;
+          player1Score=0;
+          player2Score=0;
+          player3Score=0;
+          player4Score=0;
+
+          team1Score=0;
+          team2Score=0;
+          winningPlayer=0;
+          winningTeam=0;
+          currTime=millis();
+          updatePlayingScreen();
+          currentState = PLAYING;
+        }
+      }
+    }
+
+    //read start button pin for changing mode
+    int reading2 = digitalRead(startButtonPin);
+    if (reading2 != prevStartButtonState)
+    {
+      startButtonTime =millis();
+    }
+
+    //change mode
+    if ((millis() - startButtonTime) >= 50 )
+    {
+      if (reading2 != startButtonState)
+      {
+        startButtonState=reading2;
+        if (startButtonState ==0)
+        {
+          teamMode = !teamMode;
+          lcd.clear();
+        }
+      }
+    }
+
+    prevModeButtonState = reading;
+    prevStartButtonState = reading2;
+}
+
+
+char result='X';
+byte x=1;
+byte y =2;
+byte res=0;
+byte p1=0;
+byte p2=0;
+void end_of_round()
+{
+  if (!roundStarted)
+  {
+    res=0;
+    return;
+  }
+  switch (res){
+    case 1: //P1 SCORE or TEAM 1 SCORE
+      player1Score++;
+      team1Score++;
+      Wire.beginTransmission(player1Adr); // transmit to device #4 
+      Wire.write(1);              // sends one byte
+      Wire.endTransmission();
+      break;
+    case 2: //P2 SCORE or TEAM 1 SCORE
+      player2Score++;
+      team1Score++;
+      Wire.beginTransmission(player1Adr); // transmit to device #4   
+      Wire.write(2);              // sends one byte
+      Wire.endTransmission();
+      break;
+    case 3: //P3 SCORE or TEAM 2 SCORE
+      player3Score++;
+      team2Score++;
+      Wire.beginTransmission(player2Adr); // transmit to device #4   
+      Wire.write(1);              // sends one byte
+      Wire.endTransmission();
+      break;
+    case 4: //P4 SCORE or TEAM 2 SCORE
+      player4Score++;
+      team2Score++;
+      Wire.beginTransmission(player2Adr); // transmit to device #4   
+      Wire.write(2);              // sends one byte
+      Wire.endTransmission();
+      break;
+    default:
+      return;
+  }
+
+    //EXECUTE IF SOMEBODY SCORED
+    Wire.beginTransmission(clockAdr);  //STOP CLOCK
+    Wire.write(0);              //WITH x=0
+    Wire.endTransmission();
+
+    roundStarted=false;
+    delayTime = random(2000, 6000);
+    currTime=millis();
+    previousRoundTime = millis()-roundStartTime;
+
+    if (previousRoundTime < fastestTime)
+    {
+      fastestTime = previousRoundTime;
+    }
+    updatePlayingScreen();
+ 
+ 
+}
+
+
+void play_game()
+{
+    // SEND SIGNAL TO DAWID"S BOARD TO TURN ON BOARD LED AND START CLOCK
+    if (!roundStarted && (millis() - currTime >= delayTime)) { //turn on led after random delayTime period
+
+      //TURN OFF LEDS
+      Wire.beginTransmission(player1Adr);   
+      Wire.write(0);            
+      Wire.endTransmission();
+      Wire.beginTransmission(player2Adr); 
+      Wire.write(0);              
+      Wire.endTransmission();
+
+      //Tell Clock to start
+      roundStarted = 1;
+      Wire.beginTransmission(clockAdr);  //START CLOCK AND LEDS
+      Wire.write(x);              //WITH x=1
+      Wire.endTransmission();   
+      roundStartTime=millis(); //keep track of start of round
+    }
+
+    if (roundStarted)
+    {
+      Wire.requestFrom(player1Adr, 1);//request one byte from player 1
+
+      res=0; //0 by default, will read num from peripherals
+      while (Wire.available()) { 
+      res = Wire.read(); // receive a byte 
+      }
+      Wire.requestFrom(player1Adr, 1);
+      res=0; //0 by default, will read num from peripherals
+      Wire.requestFrom(player2Adr, 1);
+      while (Wire.available()) { 
+      res = Wire.read(); // receive a byte 
+      }
+      Wire.requestFrom(player1Adr, 1);
+
+      while (Wire.available()) { 
+      res = Wire.read(); // receive a byte 
+      }
+
+    }
+
+
+
+    //UPDATE SCORES
+    //SEND SIGNAL TO DAWID's BOARD TO TURN OFF LED
+
+    // --- End condition ---
+    if (isEnd()) {
+      lcd.clear();
+      endOfGame();
+      currentState = END_OF_GAME;
+    }
+}
+
+
+void play_gameTEST()
+{
+
+
+    int reading = digitalRead(modeButtonPin);
+    if (reading != prevModeButtonState) //Pin 2
+    {
+      modeButtonTime =millis();
+    }
+
+
+    if ((millis() - modeButtonTime) >= 50 ) //pin 2,, turns on clock
+    {
+      if (reading != modeButtonState)
+      {
+        modeButtonState=reading;
+        if (modeButtonState ==0)
+        {
+          roundStarted=true;
+          Wire.beginTransmission(clockAdr); // transmit to device #4 
+          Wire.write(x);              // sends one byte
+          Wire.endTransmission();  
+          Wire.beginTransmission(player2Adr); // transmit to device #4    
+          Wire.write(2);              // sends one byte
+          Wire.endTransmission();  
+        }
+      }
+    }
+
+
+    int reading2 = digitalRead(startButtonPin);
+    if (reading2 != prevStartButtonState) //Pin 3
+    {
+      startButtonTime =millis();
+    }
+
+    if ((millis() - startButtonTime) >= 50 )//pin 3, turns on clock
+    {
+
+      if (reading2 != startButtonState)
+      {
+        startButtonState=reading2;
+        if (startButtonState ==0)
+        {
+          Wire.beginTransmission(clockAdr); // transmit to device #4     // sends five bytes
+          Wire.write(0);              // sends one byte
+          Wire.endTransmission();  
+          Wire.beginTransmission(player2Adr); // transmit to device #4     // sends five bytes
+          Wire.write(1);              // sends one byte
+          Wire.endTransmission();  
+        }
+      }
+    }
+
+
+
+        res=0; //0 by default, will read num from peripherals
+        Wire.requestFrom(player1Adr, 1);
+          if (Wire.available()) { 
+          res = Wire.read(); // receive a byte 
+          }
+
+      // if (roundStarted)
+      // {
+      //   res=0;
+      //   Wire.requestFrom(player1Adr, 1);
+
+      //     while (Wire.available()) { 
+      //     res = Wire.read(); // receive a byte 
+      //     }
+      //     end_of_round();
+      // }
+
+      
+    prevStartButtonState = reading2;
+    prevModeButtonState = reading;
+    //**READ FROM NEHA/PAULINA'S BOARD
+    //UPDATE SCORES\
+    //SEND SIGNAL TO DAWID's BOARD TO TURN OFF LED
+
+}
+
+void end_of_game()
+{
+  int reading = digitalRead(modeButtonPin);
+    if (reading != prevModeButtonState)
+    {
+      modeButtonTime =millis();
+    }
+
+
+    if ((millis() - modeButtonTime) >= 50 )
+    {
+      if (reading != modeButtonState)
+      {
+        modeButtonState=reading;
+        if (modeButtonState ==0)
+        {
+          currentState = MODE_SELECTION;
+        }
+      }
+    }
+
+
+    int reading2 = digitalRead(startButtonPin);
+    if (reading2 != prevStartButtonState)
+    {
+      startButtonTime =millis();
+    }
+
+    if ((millis() - startButtonTime) >= 50 )
+    {
+      if (reading2 != startButtonState)
+      {
+        startButtonState=reading2;
+        if (startButtonState ==0)
+        {
+          lcd.clear();
+          currentState = MODE_SELECTION;
+        }
+      }
+    }
+
+    prevModeButtonState = reading;
+    prevStartButtonState = reading2;
+}
+
+void setup() {
+  // set up the LCD's number of columns and rows:
+  Wire.begin();
+  lcd.begin(16, 2);
+
+  pinMode(modeButtonPin, INPUT_PULLUP);
+  pinMode(startButtonPin, INPUT_PULLUP);
+
+  Serial.begin(9600);
+
+  currentState = PLAYING; //Start in MODE SELECTION state
+}
+
+void loop() {
+if (currentState == MODE_SELECTION)
+  {
+    mode_select();
+  }
+else if (currentState == PLAYING) {
+    play_gameTEST();
+  }
+else if (currentState == END_OF_GAME)
+  {
+    end_of_game();
   }
 }
