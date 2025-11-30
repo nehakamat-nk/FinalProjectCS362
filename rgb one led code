@@ -1,20 +1,64 @@
+//RGB LED and OneDigit Segment work 
+//RGB lights a color based on who clicked the button first and the one digit segment will display which player that was
+//For example if player 1 clicked first the red color will light up and the segment will display one
+
 #include <Wire.h>
 
 #define I2C_ADDRESS 0x08
 
+//digit wiring
+int a = 7;
+int b = 6;
+int c = 5;
+int d = 11;
+int e = 10;
+int f = 8;
+int g = 9;
+int dp = 4;
+
+//display number 1
+void display1(void) {
+
+  digitalWrite(b, HIGH);
+  digitalWrite(c, HIGH);
+}
+
+//display number2
+void display2(void) {
+  digitalWrite(a, HIGH);
+  digitalWrite(b, HIGH);
+
+  digitalWrite(g, HIGH);
+  digitalWrite(e, HIGH);
+  digitalWrite(d, HIGH);
+}
+
+// display number3
+void display3(void) {
+  digitalWrite(a, HIGH);
+
+  digitalWrite(b, HIGH);
+
+  digitalWrite(c, HIGH);
+  digitalWrite(d, HIGH);
+
+  digitalWrite(g, HIGH);
+}
+
+// display number4
+void display4(void) {
+
+  digitalWrite(f, HIGH);
+  digitalWrite(b, HIGH);
+  digitalWrite(g, HIGH);
+
+  digitalWrite(c, HIGH);
+}
+
 // PWM output pins for RGB LED
-const int redPin = 9;
-const int greenPin = 10;
-const int bluePin = 11;
-
-
-// Color values
-int redValue = 0;
-int greenValue = 0;
-int blueValue = 0;
-int purpleValue = 0;
-
-
+const int redPin = 1;
+const int greenPin = 2;
+const int bluePin = 3;
 
 void setup() {
   Wire.begin(I2C_ADDRESS);
@@ -28,35 +72,59 @@ void setup() {
   digitalWrite(greenPin, LOW);
   digitalWrite(bluePin, LOW);
 
-  // Color values
-  redValue = map(0,0,0,0,255);
-  greenValue = map(0,0,0,0,255);
-  blueValue = map(0,0,0,0,255);
-  purpleValue = map(0,0,0,0,255);
+  //set up for one digit clock
+  for (int i = 4; i <= 11; i++) {
+    pinMode(i, OUTPUT);
+  }
 }
 
-void writeColor(int red, int green, int blue)
-{
+//writing the color on to the code
+void writeColor(int red, int green, int blue) {
   analogWrite(greenPin, green);
   analogWrite(redPin, red);
   analogWrite(bluePin, blue);
 }
 
+
 void loop() {
 }
 
+//clears the clock for a new # everytime 
+void clearDisplay(void) {
+  digitalWrite(a, LOW);
+  digitalWrite(b, LOW);
+  digitalWrite(g, LOW);
+  digitalWrite(c, LOW);
+  digitalWrite(d, LOW);
+  digitalWrite(e, LOW);
+  digitalWrite(f, LOW);
+}
+
+
+//write the color by the rgb
 void receiveEvent(int howMany) {
   if (Wire.available()) {
+
+    clearDisplay();
+
     int led = Wire.read();
 
     digitalWrite(redPin, LOW);
     digitalWrite(greenPin, LOW);
     digitalWrite(bluePin, LOW);
 
-    if (led == 1) writeColor(255, 0, 0);
-    else if (led == 2)  writeColor(0, 255, 0);
-    else if (led == 3)  writeColor(0, 0, 255);
-    else if (led == 4)  writeColor(165, 0, 165);
-
+    if (led == 1) {
+      writeColor(255, 0, 0);
+      display1();
+    } else if (led == 2) {
+      writeColor(0, 255, 0);
+      display2();
+    } else if (led == 3) {
+      writeColor(0, 0, 255);
+      display3();
+    } else if (led == 4) {
+      writeColor(165, 0, 165);
+      display4();
+    }
   }
 }
