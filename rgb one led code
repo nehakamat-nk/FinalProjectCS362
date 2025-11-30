@@ -1,0 +1,55 @@
+#include <Wire.h>
+
+#define I2C_ADDRESS 0x08
+
+// PWM output pins for RGB LED
+const int redPin = 9;
+const int greenPin = 10;
+const int bluePin = 11;
+
+
+// Color values
+int redValue = 0;
+int greenValue = 0;
+int blueValue = 0;
+int purpleValue = 0;
+
+
+
+void setup() {
+  Wire.begin(I2C_ADDRESS);
+  Wire.onReceive(receiveEvent);
+
+  pinMode(redPin, OUTPUT);
+  pinMode(greenPin, OUTPUT);
+  pinMode(bluePin, OUTPUT);
+
+  digitalWrite(redPin, LOW);
+  digitalWrite(greenPin, LOW);
+  digitalWrite(bluePin, LOW);
+
+  // Color values
+  redValue = map(0,0,0,0,255);
+  greenValue = map(0,0,0,0,255);
+  blueValue = map(0,0,0,0,255);
+  purpleValue = map(0,0,0,0,255);
+}
+
+void loop() {
+}
+
+void receiveEvent(int howMany) {
+  if (Wire.available()) {
+    int led = Wire.read();
+
+    digitalWrite(redPin, LOW);
+    digitalWrite(greenPin, LOW);
+    digitalWrite(bluePin, LOW);
+
+    if (led == 1) digitalWrite(redPin, HIGH);
+    else if (led == 2) digitalWrite(greenPin, HIGH);
+    else if (led == 3) digitalWrite(bluePin, HIGH);
+    else if (led == 4) digtialWrite();
+
+  }
+}
