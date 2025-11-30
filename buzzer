@@ -1,0 +1,27 @@
+#include <Wire.h>
+
+#define I2C_ADDRESS 0x09
+
+const int BUZZER_PIN = 7;
+
+void setup() {
+  Wire.begin(I2C_ADDRESS);
+  Wire.onReceive(receiveEvent);
+
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+}
+
+void loop() {
+  
+}
+
+void receiveEvent(int howMany) {
+  if (Wire.available()) {
+    int value = Wire.read();
+
+    if (value == 1) {
+      tone(BUZZER_PIN, 1000, 300);
+    }
+  }
+}
